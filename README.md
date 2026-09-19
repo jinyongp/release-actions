@@ -28,7 +28,7 @@ jobs:
 
       - name: Publish release
         id: release
-        uses: jinyongp/release-actions@<full-commit-sha> # v1.0.0
+        uses: jinyongp/release-actions@<full-commit-sha> # v1.1.0
         with:
           tag: ${{ github.ref_name }}
           commit: ${{ github.sha }}
@@ -47,7 +47,7 @@ without binary assets. Omit `assets` in that case:
 
 ```yaml
 - name: Publish automation release
-  uses: jinyongp/release-actions@<full-commit-sha> # v1.0.0
+  uses: jinyongp/release-actions@<full-commit-sha> # v1.1.0
   with:
     tag: ${{ inputs.tag }}
     commit: ${{ steps.release.outputs.commit }}
