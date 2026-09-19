@@ -147,6 +147,20 @@ find_release() {
   [ "$count" -eq 1 ]
 }
 
+load_release_by_id() {
+  local row
+
+  [ -n "$RELEASE_ID" ] || die "release id is missing for $INPUT_TAG"
+  row="$(
+    api \
+      "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
+      --jq '[.id, (.draft|tostring), (.prerelease|tostring), (.immutable|tostring), .html_url] | @tsv'
+  )" || die "could not read release $INPUT_TAG by id"
+
+  IFS=$'\t' read -r RELEASE_ID RELEASE_DRAFT RELEASE_PRERELEASE RELEASE_IMMUTABLE RELEASE_URL <<<"$row"
+  [ -n "$RELEASE_ID" ] || die "release id lookup returned no data for $INPUT_TAG"
+}
+
 expected_asset_row() {
   local name="$1"
   awk -F '\t' -v name="$name" '$1 == name { print; exit }' "$RELEASE_ACTIONS_ASSETS_FILE"
@@ -208,7 +222,7 @@ upload_missing_assets() {
 }
 
 create_draft_release() {
-  local title
+  local title row
   local -a args
 
   title="${INPUT_TITLE:-$INPUT_TAG}"
@@ -227,9 +241,14 @@ create_draft_release() {
     args+=(-F "body=@$INPUT_NOTES_FILE")
   fi
 
-  if ! api "${args[@]}" --silent >/dev/null; then
-    return 1
-  fi
+  row="$(
+    api \
+      "${args[@]}" \
+      --jq '[.id, (.draft|tostring), (.prerelease|tostring), (.immutable|tostring), .html_url] | @tsv'
+  )" || return 1
+
+  IFS=$'\t' read -r RELEASE_ID RELEASE_DRAFT RELEASE_PRERELEASE RELEASE_IMMUTABLE RELEASE_URL <<<"$row"
+  [ -n "$RELEASE_ID" ] || return 1
 }
 
 publish_draft_release() {
@@ -262,7 +281,7 @@ publish_draft_release() {
 }
 
 verify_published_release() {
-  find_release || die "published release disappeared: $INPUT_TAG"
+  load_release_by_id
 
   [ "$RELEASE_DRAFT" = "false" ] ||
     die "release remained a draft after publish: $INPUT_TAG"
@@ -375,7 +394,8 @@ main() {
       fi
     fi
 
-    find_release || die "created draft release could not be found: $INPUT_TAG"
+    [ "$RELEASE_DRAFT" = "true" ] ||
+      die "new release was not created as a draft: $INPUT_TAG"
     verify_release_assets "true"
     state="created"
   fi

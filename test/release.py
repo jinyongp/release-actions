@@ -59,6 +59,19 @@ if args[0] == "api":
             print("\t".join([asset["name"], asset["state"], asset["digest"]]))
         sys.exit(0)
 
+    if endpoint.endswith("/releases/42") and "-X" not in args:
+        release = state.get("release")
+        if not release:
+            sys.exit(1)
+        print("\t".join([
+            str(release["id"]),
+            str(release["draft"]).lower(),
+            str(release["prerelease"]).lower(),
+            str(release["immutable"]).lower(),
+            release["url"],
+        ]))
+        sys.exit(0)
+
     if "-X" in args and "POST" in args:
         if state.get("release"):
             sys.exit(1)
@@ -72,6 +85,13 @@ if args[0] == "api":
             "assets": [],
         }
         save()
+        print("\t".join([
+            str(state["release"]["id"]),
+            str(state["release"]["draft"]).lower(),
+            str(state["release"]["prerelease"]).lower(),
+            str(state["release"]["immutable"]).lower(),
+            state["release"]["url"],
+        ]))
         sys.exit(0)
 
     if "-X" in args and "PATCH" in args:
