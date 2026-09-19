@@ -1,0 +1,62 @@
+name: Publish immutable GitHub release
+description: Create or verify an immutable GitHub Release from caller-produced artifacts.
+
+inputs:
+  tag:
+    description: Existing Git tag to publish.
+    required: true
+  commit:
+    description: Full 40-character commit SHA the remote tag must resolve to.
+    required: true
+  assets:
+    description: Newline-separated asset paths or glob patterns. Every pattern must match at least one regular file.
+    required: true
+  title:
+    description: Release title. Defaults to the tag.
+    required: false
+    default: ""
+  notes-file:
+    description: Optional path to a release notes file. Mutually exclusive with generate-notes.
+    required: false
+    default: ""
+  generate-notes:
+    description: Ask GitHub to generate release notes.
+    required: false
+    default: "false"
+  prerelease:
+    description: Publish as a prerelease.
+    required: false
+    default: "false"
+  latest:
+    description: Latest-release policy: automatic, true, or false.
+    required: false
+    default: "automatic"
+  token:
+    description: GitHub token override. Defaults to the caller github.token.
+    required: false
+    default: ""
+
+outputs:
+  state:
+    description: created, resumed-draft, or existing.
+    value: ${{ steps.release.outputs.state }}
+  release-url:
+    description: Published GitHub Release URL.
+    value: ${{ steps.release.outputs.release-url }}
+
+runs:
+  using: composite
+  steps:
+    - id: release
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token != '' && inputs.token || github.token }}
+        INPUT_TAG: ${{ inputs.tag }}
+        INPUT_COMMIT: ${{ inputs.commit }}
+        INPUT_ASSETS: ${{ inputs.assets }}
+        INPUT_TITLE: ${{ inputs.title }}
+        INPUT_NOTES_FILE: ${{ inputs.notes-file }}
+        INPUT_GENERATE_NOTES: ${{ inputs.generate-notes }}
+        INPUT_PRERELEASE: ${{ inputs.prerelease }}
+        INPUT_LATEST: ${{ inputs.latest }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/release.sh"
