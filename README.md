@@ -26,6 +26,13 @@ Before using the action:
 The action uses the caller's `github.token` by default. An explicit `token` input may
 be supplied when the caller intentionally needs a different repository token.
 
+GitHub's repository-setting endpoint for checking whether immutable releases are enabled
+requires repository Administration (read), which the normal Actions `GITHUB_TOKEN`
+cannot request. The action therefore treats immutable releases as a required repository
+precondition and verifies the resulting published Release's immutable state immediately
+after publication. If the repository setting is not enabled, publication fails the
+postcondition check.
+
 ## Usage
 
 ```yaml
@@ -92,13 +99,12 @@ Every invocation verifies the remote tag before release mutation.
 
 For a new release, the action:
 
-1. verifies that immutable releases are enabled;
-2. creates a draft release;
-3. uploads caller-produced assets;
-4. verifies the exact asset set and SHA-256 digests;
-5. publishes the draft;
-6. verifies that the published release is immutable;
-7. verifies the exact assets again.
+1. creates a draft release;
+2. uploads caller-produced assets;
+3. verifies the exact asset set and SHA-256 digests;
+4. publishes the draft;
+5. verifies that the published release is immutable;
+6. verifies the exact assets again.
 
 If a matching draft already exists, the action accepts already-uploaded assets only when
 their GitHub SHA-256 digest matches the local file. Missing assets are uploaded; unexpected,

@@ -117,12 +117,6 @@ verify_remote_tag() {
     die "release tag target does not match commit: tag=$target expected=$expected"
 }
 
-require_immutable_releases() {
-  if ! api "repos/$GITHUB_REPOSITORY/immutable-releases" --silent >/dev/null 2>&1; then
-    die "immutable releases must be enabled for $GITHUB_REPOSITORY before publishing"
-  fi
-}
-
 find_release() {
   local rows tag id draft prerelease immutable url count
   rows="$(
@@ -342,7 +336,6 @@ preflight() {
 
   expand_assets "$RELEASE_ACTIONS_ASSETS_FILE"
   verify_remote_tag "$INPUT_TAG" "$INPUT_COMMIT"
-  require_immutable_releases
 }
 
 main() {

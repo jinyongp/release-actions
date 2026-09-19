@@ -40,10 +40,6 @@ if not args:
 
 if args[0] == "api":
     endpoint = next((arg for arg in args[1:] if arg.startswith("repos/")), "")
-
-    if endpoint.endswith("/immutable-releases"):
-        sys.exit(0 if state.get("immutable_enabled", True) else 1)
-
     if "/releases?per_page=100" in endpoint:
         release = state.get("release")
         if release:
@@ -83,7 +79,7 @@ if args[0] == "api":
         release["draft"] = field("draft") == "true"
         release["prerelease"] = field("prerelease") == "true"
         if not release["draft"]:
-            release["immutable"] = True
+            release["immutable"] = state.get("immutable_enabled", True)
         save()
         sys.exit(0)
 
@@ -302,7 +298,7 @@ def main():
             assets,
             {"immutable_enabled": False, "release": None},
         )
-        require_failure(result, "immutable releases must be enabled")
+        require_failure(result, "published release is not immutable")
 
         result, _, _ = run_case(
             work,
