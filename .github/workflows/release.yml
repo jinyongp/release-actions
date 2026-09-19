@@ -19,12 +19,13 @@ jobs:
   release:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Validate release tag
+      - name: Resolve release tag
         id: release
         env:
           TAG: ${{ inputs.tag }}
@@ -44,39 +45,27 @@ jobs:
             echo "target=$TARGET"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Checkout tagged release action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.release.outputs.target }}
+          path: release-action
+          persist-credentials: false
+
       - name: Publish immutable action release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.release.outputs.tag }}
-          TARGET: ${{ steps.release.outputs.target }}
+        id: publish
+        uses: ./release-action
+        with:
+          tag: ${{ steps.release.outputs.tag }}
+          commit: ${{ steps.release.outputs.target }}
+          title: ${{ steps.release.outputs.tag }}
+          latest: "false"
+
+      - name: Summary
         run: |
-          set -euo pipefail
-
-          if gh release view "$TAG" --json isDraft,isImmutable,isPrerelease >/dev/null 2>&1; then
-            actual_target="$(git ls-remote origin "refs/tags/$TAG^{}" | awk '{print $1}')"
-            if [ -z "$actual_target" ]; then
-              actual_target="$(git ls-remote origin "refs/tags/$TAG" | awk '{print $1}')"
-            fi
-            [ "$actual_target" = "$TARGET" ]
-
-            state="$(
-              gh release view "$TAG" \
-                --json isDraft,isImmutable,isPrerelease \
-                --jq '[.isDraft, .isImmutable, .isPrerelease] | @tsv'
-            )"
-            [ "$state" = $'false\ttrue\tfalse' ]
-            exit 0
-          fi
-
-          gh release create "$TAG" \
-            --verify-tag \
-            --title "$TAG" \
-            --notes "release-actions $TAG" \
-            --latest=false
-
-          state="$(
-            gh release view "$TAG" \
-              --json isDraft,isImmutable,isPrerelease \
-              --jq '[.isDraft, .isImmutable, .isPrerelease] | @tsv'
-          )"
-          [ "$state" = $'false\ttrue\tfalse' ]
+          {
+            echo "### release-actions ${{ steps.release.outputs.tag }}"
+            echo ""
+            echo "- state: ${{ steps.publish.outputs.state }}"
+            echo "- release: ${{ steps.publish.outputs.release-url }}"
+          } >> "$GITHUB_STEP_SUMMARY"

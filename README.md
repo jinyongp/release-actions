@@ -1,39 +1,15 @@
 # release-actions
 
-Reusable GitHub Action for publishing caller-built artifacts as an immutable GitHub Release.
+Publish an immutable GitHub Release from an existing Git tag.
 
-The public API is the repository root:
+`release-actions` owns the GitHub Release lifecycle. The caller owns version selection,
+tag creation, build commands, artifact naming, release triggers, and changelog policy.
 
-```yaml
-- uses: jinyongp/release-actions@<full-commit-sha> # v1.0.0
-```
+## Quick start
 
-The action owns the GitHub Release lifecycle only. Product build commands, version
-selection, tag creation, release triggers, artifact naming, and changelog policy stay in
-the caller repository.
-
-## Requirements
-
-Before using the action:
-
-- enable **immutable releases** for the caller repository;
-- give the release job `contents: write`;
-- create and push the Git tag before invoking the action;
-- check out the caller repository so its authenticated `origin` is available for tag
-  provenance verification;
-- build every release asset before invoking the action.
-
-The action uses the caller's `github.token` by default. An explicit `token` input may
-be supplied when the caller intentionally needs a different repository token.
-
-GitHub's repository-setting endpoint for checking whether immutable releases are enabled
-requires repository Administration (read), which the normal Actions `GITHUB_TOKEN`
-cannot request. The action therefore treats immutable releases as a required repository
-precondition and verifies the resulting published Release's immutable state immediately
-after publication. If the repository setting is not enabled, publication fails the
-postcondition check.
-
-## Usage
+Create and push the Git tag before invoking the action. The release job needs
+`contents: write` and a checkout with Git history so the action can verify tag
+provenance.
 
 ```yaml
 jobs:
@@ -50,7 +26,7 @@ jobs:
       - name: Build release assets
         run: ./scripts/build-release.sh
 
-      - name: Publish GitHub Release
+      - name: Publish release
         id: release
         uses: jinyongp/release-actions@<full-commit-sha> # v1.0.0
         with:
@@ -59,80 +35,93 @@ jobs:
           assets: |
             dist/*.tar.gz
             dist/*.zip
-          generate-notes: "true"
 ```
 
 Always pin cross-repository actions to a full commit SHA. The adjacent `vX.Y.Z`
-comment is version metadata for review and update tooling; the SHA is the executable
-identity.
+comment is release metadata for humans and dependency tooling.
+
+## Releases without assets
+
+GitHub Action and reusable-workflow repositories often publish a versioned release
+without binary assets. Omit `assets` in that case:
+
+```yaml
+- name: Publish automation release
+  uses: jinyongp/release-actions@<full-commit-sha> # v1.0.0
+  with:
+    tag: ${{ inputs.tag }}
+    commit: ${{ steps.release.outputs.commit }}
+    latest: "false"
+```
+
+The same provenance, immutability, idempotency, and release-state checks apply whether
+or not the release contains assets.
+
+## Requirements
+
+Before publishing:
+
+- enable immutable releases for the caller repository;
+- create and push the requested Git tag;
+- give the job `contents: write`;
+- check out the caller repository with its authenticated `origin` available;
+- build any requested assets before invoking the action.
+
+The action uses the caller's `github.token` by default. Supply `token` only when a
+different repository credential is intentionally required.
 
 ## Inputs
 
 | Input | Required | Default | Meaning |
 | --- | --- | --- | --- |
 | `tag` | yes | — | Existing remote Git tag to publish. |
-| `commit` | yes | — | Full 40-character commit SHA that the remote tag must resolve to. |
-| `assets` | yes | — | Newline-separated file paths or glob patterns. Every pattern must match at least one regular file. |
+| `commit` | yes | — | Full 40-character commit SHA the remote tag must resolve to. |
+| `assets` | no | empty | Newline-separated file paths or glob patterns. Every supplied pattern must match at least one regular file. |
 | `title` | no | tag | Release title. |
-| `notes-file` | no | empty | File containing release notes. Mutually exclusive with `generate-notes: "true"`. |
+| `notes-file` | no | empty | Release notes file. Mutually exclusive with `generate-notes: "true"`. |
 | `generate-notes` | no | `false` | Ask GitHub to generate release notes. |
-| `prerelease` | no | `false` | Publish the release as a prerelease. |
-| `latest` | no | `automatic` | `automatic`, `true`, or `false`. Automatic uses GitHub's legacy semantic/date selection for stable releases. |
+| `prerelease` | no | `false` | Publish as a prerelease. |
+| `latest` | no | `automatic` | `automatic`, `true`, or `false`. |
 | `token` | no | caller `github.token` | Explicit GitHub token override. |
 
 A prerelease cannot use `latest: "true"`.
 
-Asset basenames must be stable on GitHub: letters, numbers, dots, underscores, plus,
-and dash are supported; leading/trailing dots and control characters are rejected.
-Duplicate basenames are rejected even when the files come from different directories.
+When assets are supplied, each basename must be stable on GitHub and unique within the
+release. Leading or trailing dots, unsupported characters, duplicate basenames, and
+patterns that match no regular file are rejected.
 
 ## Outputs
 
 | Output | Meaning |
 | --- | --- |
 | `state` | `created`, `resumed-draft`, or `existing`. |
-| `release-url` | URL of the published GitHub Release. |
+| `release-url` | Published GitHub Release URL. |
 
 ## Lifecycle guarantees
 
-Every invocation verifies the remote tag before release mutation.
+Every invocation first verifies that the remote tag resolves to the requested commit.
 
-For a new release, the action:
+For a new release, the action creates a draft, uploads any requested assets, verifies
+their exact set and SHA-256 digests, publishes the draft, verifies immutability, and
+checks the final asset set again.
 
-1. creates a draft release;
-2. uploads caller-produced assets;
-3. verifies the exact asset set and SHA-256 digests;
-4. publishes the draft;
-5. verifies that the published release is immutable;
-6. verifies the exact assets again.
+An existing draft is resumed only when its state is compatible with the requested
+release. An existing published release is accepted as an idempotent no-op only when its
+tag target, prerelease state, immutability, and complete asset set all match the request.
 
-If a matching draft already exists, the action accepts already-uploaded assets only when
-their GitHub SHA-256 digest matches the local file. Missing assets are uploaded; unexpected,
-partial, or mismatched assets fail without being deleted or overwritten.
-
-If a published release already exists, it is an idempotent no-op only when:
-
-- the remote tag still resolves to the requested commit;
-- prerelease state matches;
-- the release is immutable;
-- the release contains exactly the requested assets;
-- every asset digest matches the local file.
-
-Any mismatch fails. The action never retargets a published release, deletes an existing
-asset, uses `--clobber`, or replaces a tagged artifact.
+The action never retargets a published release, deletes or replaces an existing asset,
+uses `--clobber`, or forcefully repairs mismatched release state.
 
 ## Release notes
 
-Release-note policy remains caller-owned.
-
-Use either:
+Release-note policy remains caller-owned. Use either a file:
 
 ```yaml
 with:
   notes-file: dist/release-notes.md
 ```
 
-or:
+or GitHub-generated notes:
 
 ```yaml
 with:
@@ -143,14 +132,14 @@ The two modes are mutually exclusive.
 
 ## Development
 
-The regression suite uses a temporary Git remote and a stateful fake GitHub CLI. It does
-not create live releases:
+Run the deterministic regression suite with:
 
 ```sh
 python3 test/release.py
 ```
 
-CI runs the same regression on Linux and macOS.
+The tests use a temporary Git remote and a stateful fake GitHub CLI; they do not create
+live releases. CI runs the same regression on Linux and macOS.
 
 ## License
 

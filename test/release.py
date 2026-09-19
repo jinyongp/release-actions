@@ -221,6 +221,21 @@ def release_state(a, b, *, draft=False, immutable=True, prerelease=False):
     }
 
 
+def assetless_release_state(*, draft=False, immutable=True, prerelease=False):
+    return {
+        "immutable_enabled": True,
+        "release": {
+            "id": 42,
+            "tag": "v1.0.0",
+            "draft": draft,
+            "prerelease": prerelease,
+            "immutable": immutable,
+            "url": "https://example.invalid/release/42",
+            "assets": [],
+        },
+    }
+
+
 def require_failure(result, text):
     assert result.returncode != 0, result.stdout
     assert text in result.stderr, result.stderr
@@ -236,7 +251,14 @@ def main():
         assert f"  {input_name}:" in metadata
     for output_name in ["state", "release-url"]:
         assert f"  {output_name}:" in metadata
+    assets_contract = metadata.split("  assets:", 1)[1].split("  title:", 1)[0]
+    assert "required: false" in assets_contract
+    assert 'default: ""' in assets_contract
     assert "homebrew" not in metadata.lower()
+
+    release_workflow = (ROOT / ".github/workflows/release.yml").read_text()
+    assert "uses: ./release-action" in release_workflow
+    assert "gh release create" not in release_workflow
     for line in metadata.splitlines():
         stripped = line.strip()
         if stripped.startswith("description: "):
@@ -287,6 +309,36 @@ def main():
         assert state["release"]["immutable"] is True
         assert len(state["release"]["assets"]) == 2
         assert "state=created" in output
+
+        result, state, output = run_case(
+            work,
+            fakebin,
+            tmp,
+            commit,
+            "",
+            {"immutable_enabled": True, "release": None},
+        )
+        assert result.returncode == 0, result.stderr
+        assert state["release"]["assets"] == []
+        assert state["release"]["immutable"] is True
+        assert "state=created" in output
+
+        result, _, output = run_case(
+            work, fakebin, tmp, commit, "", assetless_release_state()
+        )
+        assert result.returncode == 0, result.stderr
+        assert "state=existing" in output
+
+        unexpected_assetless = assetless_release_state()
+        unexpected_assetless["release"]["assets"].append({
+            "name": "unexpected.bin",
+            "state": "uploaded",
+            "digest": "sha256:" + ("1" * 64),
+        })
+        result, _, _ = run_case(
+            work, fakebin, tmp, commit, "", unexpected_assetless
+        )
+        require_failure(result, "unexpected asset")
 
         mismatch = release_state(a, b)
         mismatch["release"]["assets"][0]["digest"] = "sha256:" + ("0" * 64)

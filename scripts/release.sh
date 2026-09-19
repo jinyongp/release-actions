@@ -92,9 +92,7 @@ expand_assets() {
     done < <(compgen -G "$pattern" || true)
 
     [ "$matched" -eq 1 ] || die "release asset pattern matched no files: $pattern"
-  done <<<"$INPUT_ASSETS"
-
-  [ -s "$output" ] || die "assets must contain at least one matching file"
+  done <<<"${INPUT_ASSETS:-}"
 }
 
 verify_remote_tag() {
@@ -313,7 +311,6 @@ preflight() {
   require_env GH_TOKEN
   require_env INPUT_TAG
   require_env INPUT_COMMIT
-  require_env INPUT_ASSETS
 
   case "$GITHUB_REPOSITORY" in
     */*/*|/*|*/|*".."*|*[!A-Za-z0-9._/-]*|"")

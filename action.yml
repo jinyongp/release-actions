@@ -9,8 +9,9 @@ inputs:
     description: Full 40-character commit SHA the remote tag must resolve to.
     required: true
   assets:
-    description: Newline-separated asset paths or glob patterns. Every pattern must match at least one regular file.
-    required: true
+    description: Optional newline-separated asset paths or glob patterns. Every pattern must match at least one regular file.
+    required: false
+    default: ""
   title:
     description: Release title. Defaults to the tag.
     required: false
