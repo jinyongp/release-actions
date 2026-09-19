@@ -221,6 +221,12 @@ def main():
     for output_name in ["state", "release-url"]:
         assert f"  {output_name}:" in metadata
     assert "homebrew" not in metadata.lower()
+    for line in metadata.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("description: "):
+            value = stripped[len("description: "):]
+            if ": " in value:
+                assert value.startswith(('"', "'")), line
 
     with tempfile.TemporaryDirectory() as directory:
         tmp = Path(directory)

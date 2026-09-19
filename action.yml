@@ -28,7 +28,7 @@ inputs:
     required: false
     default: "false"
   latest:
-    description: Latest-release policy: automatic, true, or false.
+    description: "Latest-release policy: automatic, true, or false."
     required: false
     default: "automatic"
   token:
