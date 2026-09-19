@@ -213,6 +213,15 @@ def require_failure(result, text):
 def main():
     subprocess.run(["bash", "-n", str(SCRIPT)], check=True)
 
+    metadata = (ROOT / "action.yml").read_text()
+    assert "using: composite" in metadata
+    assert "id: release" in metadata
+    for input_name in ["tag", "commit", "assets", "title", "notes-file", "generate-notes", "prerelease", "latest", "token"]:
+        assert f"  {input_name}:" in metadata
+    for output_name in ["state", "release-url"]:
+        assert f"  {output_name}:" in metadata
+    assert "homebrew" not in metadata.lower()
+
     with tempfile.TemporaryDirectory() as directory:
         tmp = Path(directory)
         fakebin = tmp / "bin"
