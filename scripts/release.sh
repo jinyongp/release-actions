@@ -325,6 +325,9 @@ preflight() {
     automatic|true|false) ;;
     *) die "latest must be automatic, true, or false" ;;
   esac
+  if [ "${INPUT_PRERELEASE:-false}" = "true" ] && [ "${INPUT_LATEST:-automatic}" = "true" ]; then
+    die "prerelease releases cannot be marked latest"
+  fi
 
   if [ -n "${INPUT_NOTES_FILE:-}" ]; then
     [ -f "$INPUT_NOTES_FILE" ] || die "notes-file does not exist: $INPUT_NOTES_FILE"
