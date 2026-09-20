@@ -1,8 +1,8 @@
-# release-actions
+# actions
 
 Publish an immutable GitHub Release from an existing Git tag.
 
-`release-actions` owns the GitHub Release lifecycle. The caller owns version selection,
+`actions` owns the GitHub Release lifecycle. The caller owns version selection,
 tag creation, build commands, artifact naming, release triggers, and changelog policy.
 
 ## Quick start
@@ -28,7 +28,7 @@ jobs:
 
       - name: Publish release
         id: release
-        uses: jinyongp/release-actions@<full-commit-sha> # v1.1.0
+        uses: releaseway/actions@<full-commit-sha> # v0.1.0
         with:
           tag: ${{ github.ref_name }}
           commit: ${{ github.sha }}
@@ -47,11 +47,11 @@ without binary assets. Omit `assets` in that case:
 
 ```yaml
 - name: Publish automation release
-  uses: jinyongp/release-actions@<full-commit-sha> # v1.1.0
+  uses: releaseway/actions@<full-commit-sha> # v0.1.0
   with:
     tag: ${{ inputs.tag }}
     commit: ${{ steps.release.outputs.commit }}
-    latest: "false"
+    latest: "true"
 ```
 
 The same provenance, immutability, idempotency, and release-state checks apply whether

@@ -59,12 +59,12 @@ jobs:
           tag: ${{ steps.release.outputs.tag }}
           commit: ${{ steps.release.outputs.target }}
           title: ${{ steps.release.outputs.tag }}
-          latest: "false"
+          latest: "true"
 
       - name: Summary
         run: |
           {
-            echo "### release-actions ${{ steps.release.outputs.tag }}"
+            echo "### actions ${{ steps.release.outputs.tag }}"
             echo ""
             echo "- state: ${{ steps.publish.outputs.state }}"
             echo "- release: ${{ steps.publish.outputs.release-url }}"
