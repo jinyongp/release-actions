@@ -49,21 +49,26 @@ if args[:2] == ["repo", "view"]:
         print(os.environ.get("GH_REPO", state.get("repository", "owner/repo")))
     sys.exit(0)
 
+if args[:2] == ["release", "view"]:
+    if state.get("release_view_error"):
+        print(state["release_view_error"], file=sys.stderr)
+        sys.exit(1)
+    tag = args[2]
+    release = state.get("release")
+    if not release or release["tag"] != tag:
+        print("release not found", file=sys.stderr)
+        sys.exit(1)
+    print("\t".join([
+        str(release["id"]),
+        str(release["draft"]).lower(),
+        str(release["prerelease"]).lower(),
+        str(release["immutable"]).lower(),
+        release["url"],
+    ]))
+    sys.exit(0)
+
 if args[0] == "api":
     endpoint = next((arg for arg in args[1:] if arg.startswith("repos/")), "")
-    if "/releases?per_page=100" in endpoint:
-        release = state.get("release")
-        if release:
-            print("\t".join([
-                release["tag"],
-                str(release["id"]),
-                str(release["draft"]).lower(),
-                str(release["prerelease"]).lower(),
-                str(release["immutable"]).lower(),
-                release["url"],
-            ]))
-        sys.exit(0)
-
     if endpoint.endswith("/assets?per_page=100"):
         release = state.get("release")
         for asset in release.get("assets", []) if release else []:
@@ -292,6 +297,10 @@ def main():
     release_workflow = (ROOT / ".github/workflows/release.yml").read_text()
     assert "uses: ./release-action" in release_workflow
     assert "gh release create" not in release_workflow
+
+    script = SCRIPT.read_text()
+    assert 'gh release view "$INPUT_TAG"' in script
+    assert 'releases?per_page=100' not in script
     for line in metadata.splitlines():
         stripped = line.strip()
         if stripped.startswith("description: "):
@@ -342,6 +351,20 @@ def main():
         assert state["release"]["immutable"] is True
         assert len(state["release"]["assets"]) == 2
         assert "state=created" in output
+
+        result, _, _ = run_case(
+            work,
+            fakebin,
+            tmp,
+            commit,
+            assets,
+            {
+                "immutable_enabled": True,
+                "release": None,
+                "release_view_error": "simulated provider failure",
+            },
+        )
+        require_failure(result, "could not look up release v1.0.0: simulated provider failure")
 
         result, state, output = run_case(
             work,

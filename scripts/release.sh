@@ -129,33 +129,30 @@ verify_repository_identity() {
 }
 
 find_release() {
-  local rows tag id draft prerelease immutable url count
-  rows="$(
-    api \
-      --paginate \
-      "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
-      --jq '.[] | [.tag_name, (.id|tostring), (.draft|tostring), (.prerelease|tostring), (.immutable|tostring), .html_url] | @tsv'
-  )" || die "could not list releases for $GITHUB_REPOSITORY"
+  local row
 
-  count=0
   RELEASE_ID=""
   RELEASE_DRAFT=""
   RELEASE_PRERELEASE=""
   RELEASE_IMMUTABLE=""
   RELEASE_URL=""
 
-  while IFS=$'\t' read -r tag id draft prerelease immutable url || [ -n "$tag" ]; do
-    [ "$tag" = "$INPUT_TAG" ] || continue
-    count=$((count + 1))
-    RELEASE_ID="$id"
-    RELEASE_DRAFT="$draft"
-    RELEASE_PRERELEASE="$prerelease"
-    RELEASE_IMMUTABLE="$immutable"
-    RELEASE_URL="$url"
-  done <<<"$rows"
+  if row="$(
+    gh release view "$INPUT_TAG" \
+      --repo "$GITHUB_REPOSITORY" \
+      --json databaseId,isDraft,isPrerelease,isImmutable,url \
+      --jq '[.databaseId, (.isDraft|tostring), (.isPrerelease|tostring), (.isImmutable|tostring), .url] | @tsv' \
+      2>&1
+  )"; then
+    IFS=$'\t' read -r RELEASE_ID RELEASE_DRAFT RELEASE_PRERELEASE RELEASE_IMMUTABLE RELEASE_URL <<<"$row"
+    [ -n "$RELEASE_ID" ] ||
+      die "release lookup returned no data for $INPUT_TAG"
+    return 0
+  fi
 
-  [ "$count" -le 1 ] || die "multiple releases unexpectedly use tag $INPUT_TAG"
-  [ "$count" -eq 1 ]
+  [ "$row" = "release not found" ] ||
+    die "could not look up release $INPUT_TAG: $row"
+  return 1
 }
 
 load_release_by_id() {
