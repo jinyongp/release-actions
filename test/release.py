@@ -31,12 +31,19 @@ def field(name, default=None):
         if arg in ("-f", "-F") and index + 1 < len(args):
             candidate = args[index + 1]
             if candidate.startswith(prefix):
-                return candidate[len(prefix):]
+                value = candidate[len(prefix):]
+                if arg == "-F" and value.startswith("@"):
+                    return Path(value[1:]).read_text()
+                return value
     return default
 
 
 if not args:
     sys.exit(1)
+
+if args[:2] == ["repo", "view"]:
+    print(state.get("repository", "owner/repo"))
+    sys.exit(0)
 
 if args[0] == "api":
     endpoint = next((arg for arg in args[1:] if arg.startswith("repos/")), "")
@@ -63,6 +70,13 @@ if args[0] == "api":
         release = state.get("release")
         if not release:
             sys.exit(1)
+        jq = args[args.index("--jq") + 1] if "--jq" in args else ""
+        if jq == '.name // ""':
+            print(release.get("name", ""))
+            sys.exit(0)
+        if jq == '.body // ""':
+            print(release.get("body", ""))
+            sys.exit(0)
         print("\t".join([
             str(release["id"]),
             str(release["draft"]).lower(),
@@ -78,6 +92,8 @@ if args[0] == "api":
         state["release"] = {
             "id": 42,
             "tag": field("tag_name"),
+            "name": field("name", field("tag_name")),
+            "body": field("body", ""),
             "draft": True,
             "prerelease": field("prerelease") == "true",
             "immutable": False,
@@ -120,6 +136,11 @@ if args[:2] == ["release", "upload"]:
         "state": "uploaded",
         "digest": "sha256:" + digest,
     })
+    concurrent = state.get("concurrent_upload_name")
+    if concurrent == name:
+        state["concurrent_upload_name"] = None
+        save()
+        sys.exit(1)
     save()
     sys.exit(0)
 
@@ -209,6 +230,8 @@ def release_state(a, b, *, draft=False, immutable=True, prerelease=False):
         "release": {
             "id": 42,
             "tag": "v1.0.0",
+            "name": "v1.0.0",
+            "body": "",
             "draft": draft,
             "prerelease": prerelease,
             "immutable": immutable,
@@ -227,6 +250,8 @@ def assetless_release_state(*, draft=False, immutable=True, prerelease=False):
         "release": {
             "id": 42,
             "tag": "v1.0.0",
+            "name": "v1.0.0",
+            "body": "",
             "draft": draft,
             "prerelease": prerelease,
             "immutable": immutable,
@@ -408,6 +433,42 @@ def main():
             {"immutable_enabled": True, "release": None},
         )
         require_failure(result, "basename is duplicated")
+
+        identity_mismatch = {"immutable_enabled": True, "release": None, "repository": "other/repo"}
+        result, _, _ = run_case(work, fakebin, tmp, commit, assets, identity_mismatch)
+        require_failure(result, "checkout repository does not match GITHUB_REPOSITORY")
+
+        stale_title = release_state(a, b, draft=True, immutable=False)
+        stale_title["release"]["name"] = "stale title"
+        result, _, _ = run_case(work, fakebin, tmp, commit, assets, stale_title)
+        require_failure(result, "draft release title does not match")
+
+        notes = work / "release-notes.md"
+        notes.write_text("expected notes\n")
+        stale_notes = release_state(a, b, draft=True, immutable=False)
+        stale_notes["release"]["body"] = "different notes"
+        result, _, _ = run_case(
+            work,
+            fakebin,
+            tmp,
+            commit,
+            assets,
+            stale_notes,
+            INPUT_NOTES_FILE=str(notes),
+        )
+        require_failure(result, "draft release notes do not match")
+
+        concurrent = {
+            "immutable_enabled": True,
+            "release": None,
+            "concurrent_upload_name": a.name,
+        }
+        result, state, output = run_case(work, fakebin, tmp, commit, assets, concurrent)
+        assert result.returncode == 0, result.stderr
+        assert state["release"]["immutable"] is True
+        assert len(state["release"]["assets"]) == 2
+        assert "uploaded concurrently" in result.stdout
+        assert "state=created" in output
 
         result, _, _ = run_case(
             work,

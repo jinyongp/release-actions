@@ -115,6 +115,17 @@ verify_remote_tag() {
     die "release tag target does not match commit: tag=$target expected=$expected"
 }
 
+verify_repository_identity() {
+  local repository
+
+  repository="$(
+    gh repo view --json nameWithOwner --jq '.nameWithOwner'
+  )" || die "could not resolve checkout repository identity"
+
+  [ "$repository" = "$GITHUB_REPOSITORY" ] ||
+    die "checkout repository does not match GITHUB_REPOSITORY: checkout=$repository expected=$GITHUB_REPOSITORY"
+}
+
 find_release() {
   local rows tag id draft prerelease immutable url count
   rows="$(
@@ -209,14 +220,68 @@ verify_release_assets() {
   done <"$RELEASE_ACTIONS_ASSETS_FILE"
 }
 
+verify_uploaded_asset() {
+  local expected_name="$1"
+  local expected_digest="$2"
+  local rows name state digest
+
+  rows="$(
+    api \
+      --paginate \
+      "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?per_page=100" \
+      --jq '.[] | [.name, .state, (.digest // "")] | @tsv'
+  )" || return 1
+
+  while IFS=$'\t' read -r name state digest || [ -n "$name" ]; do
+    [ "$name" = "$expected_name" ] || continue
+    [ "$state" = "uploaded" ] ||
+      die "concurrent release asset is not fully uploaded: $name (state=$state)"
+    [ "$digest" = "sha256:$expected_digest" ] ||
+      die "concurrent release asset digest mismatch: $name"
+    return 0
+  done <<<"$rows"
+
+  return 1
+}
+
 upload_missing_assets() {
   local name path digest
   while IFS=$'\t' read -r name path digest; do
     [ -n "$name" ] || continue
     if ! gh release upload "$INPUT_TAG" "$path" --repo "$GITHUB_REPOSITORY"; then
+      if verify_uploaded_asset "$name" "$digest"; then
+        echo "::notice::release asset was uploaded concurrently: $name"
+        continue
+      fi
       die "failed to upload release asset: $name"
     fi
   done <"$RELEASE_ACTIONS_MISSING_FILE"
+}
+
+verify_draft_metadata() {
+  local expected_title actual_title expected_body actual_body
+
+  expected_title="${INPUT_TITLE:-$INPUT_TAG}"
+  actual_title="$(
+    api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" --jq '.name // ""'
+  )" || die "could not read release title for $INPUT_TAG"
+  [ "$actual_title" = "$expected_title" ] ||
+    die "existing draft release title does not match requested title: $INPUT_TAG"
+
+  if [ -n "${INPUT_NOTES_FILE:-}" ]; then
+    expected_body="$(cat "$INPUT_NOTES_FILE")"
+    actual_body="$(
+      api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" --jq '.body // ""'
+    )" || die "could not read release notes for $INPUT_TAG"
+    [ "$actual_body" = "$expected_body" ] ||
+      die "existing draft release notes do not match requested notes: $INPUT_TAG"
+  elif [ "${INPUT_GENERATE_NOTES:-false}" = "false" ]; then
+    actual_body="$(
+      api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" --jq '.body // ""'
+    )" || die "could not read release notes for $INPUT_TAG"
+    [ -z "$actual_body" ] ||
+      die "existing draft release notes do not match requested empty notes: $INPUT_TAG"
+  fi
 }
 
 create_draft_release() {
@@ -351,6 +416,7 @@ preflight() {
   export RELEASE_ACTIONS_ASSETS_FILE RELEASE_ACTIONS_MISSING_FILE RELEASE_ACTIONS_SEEN_FILE
 
   expand_assets "$RELEASE_ACTIONS_ASSETS_FILE"
+  verify_repository_identity
   verify_remote_tag "$INPUT_TAG" "$INPUT_COMMIT"
 }
 
@@ -372,6 +438,7 @@ main() {
       exit 0
     fi
 
+    verify_draft_metadata
     verify_release_assets "true"
     state="resumed-draft"
   else
@@ -389,6 +456,8 @@ main() {
         echo "::notice::verified concurrently published immutable release $INPUT_TAG"
         exit 0
       fi
+
+      verify_draft_metadata
     fi
 
     [ "$RELEASE_DRAFT" = "true" ] ||
