@@ -11,7 +11,8 @@ cleanup() {
   for path in \
     "${RELEASE_ACTIONS_ASSETS_FILE:-}" \
     "${RELEASE_ACTIONS_MISSING_FILE:-}" \
-    "${RELEASE_ACTIONS_SEEN_FILE:-}"; do
+    "${RELEASE_ACTIONS_SEEN_FILE:-}" \
+    "${RELEASE_ACTIONS_LOOKUP_ERROR_FILE:-}"; do
     if [ -n "$path" ]; then
       rm -f "$path"
     fi
@@ -129,8 +130,9 @@ verify_repository_identity() {
 }
 
 find_release() {
-  local row
+  local row error last_error
 
+  : >"$RELEASE_ACTIONS_LOOKUP_ERROR_FILE"
   RELEASE_ID=""
   RELEASE_DRAFT=""
   RELEASE_PRERELEASE=""
@@ -140,18 +142,21 @@ find_release() {
   if row="$(
     gh release view "$INPUT_TAG" \
       --repo "$GITHUB_REPOSITORY" \
-      --json databaseId,isDraft,isPrerelease,isImmutable,url \
-      --jq '[.databaseId, (.isDraft|tostring), (.isPrerelease|tostring), (.isImmutable|tostring), .url] | @tsv' \
-      2>&1
+      --json databaseId \
+      --jq '.databaseId' \
+      2>"$RELEASE_ACTIONS_LOOKUP_ERROR_FILE"
   )"; then
-    IFS=$'\t' read -r RELEASE_ID RELEASE_DRAFT RELEASE_PRERELEASE RELEASE_IMMUTABLE RELEASE_URL <<<"$row"
+    RELEASE_ID="$row"
     [ -n "$RELEASE_ID" ] ||
       die "release lookup returned no data for $INPUT_TAG"
+    load_release_by_id
     return 0
   fi
 
-  [ "$row" = "release not found" ] ||
-    die "could not look up release $INPUT_TAG: $row"
+  error="$(<"$RELEASE_ACTIONS_LOOKUP_ERROR_FILE")"
+  last_error="${error##*$'\n'}"
+  [ "$last_error" = "release not found" ] ||
+    die "could not look up release $INPUT_TAG: $error"
   return 1
 }
 
@@ -421,7 +426,9 @@ preflight() {
   RELEASE_ACTIONS_ASSETS_FILE="$(mktemp)"
   RELEASE_ACTIONS_MISSING_FILE="$(mktemp)"
   RELEASE_ACTIONS_SEEN_FILE="$(mktemp)"
+  RELEASE_ACTIONS_LOOKUP_ERROR_FILE="$(mktemp)"
   export RELEASE_ACTIONS_ASSETS_FILE RELEASE_ACTIONS_MISSING_FILE RELEASE_ACTIONS_SEEN_FILE
+  export RELEASE_ACTIONS_LOOKUP_ERROR_FILE
 
   expand_assets "$RELEASE_ACTIONS_ASSETS_FILE"
   verify_repository_identity

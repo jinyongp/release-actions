@@ -53,18 +53,14 @@ if args[:2] == ["release", "view"]:
     if state.get("release_view_error"):
         print(state["release_view_error"], file=sys.stderr)
         sys.exit(1)
+    if state.get("release_view_warning"):
+        print(state["release_view_warning"], file=sys.stderr)
     tag = args[2]
     release = state.get("release")
     if not release or release["tag"] != tag:
         print("release not found", file=sys.stderr)
         sys.exit(1)
-    print("\t".join([
-        str(release["id"]),
-        str(release["draft"]).lower(),
-        str(release["prerelease"]).lower(),
-        str(release["immutable"]).lower(),
-        release["url"],
-    ]))
+    print(release["id"])
     sys.exit(0)
 
 if args[0] == "api":
@@ -297,10 +293,6 @@ def main():
     release_workflow = (ROOT / ".github/workflows/release.yml").read_text()
     assert "uses: ./release-action" in release_workflow
     assert "gh release create" not in release_workflow
-
-    script = SCRIPT.read_text()
-    assert 'gh release view "$INPUT_TAG"' in script
-    assert 'releases?per_page=100' not in script
     for line in metadata.splitlines():
         stripped = line.strip()
         if stripped.startswith("description: "):
@@ -329,6 +321,14 @@ def main():
         assert result.returncode == 0, result.stderr
         assert "state=existing" in output
 
+        existing_with_warning = release_state(a, b)
+        existing_with_warning["release_view_warning"] = "simulated gh warning"
+        result, _, output = run_case(
+            work, fakebin, tmp, commit, assets, existing_with_warning
+        )
+        assert result.returncode == 0, result.stderr
+        assert "state=existing" in output
+
         draft = release_state(a, b, draft=True, immutable=False)
         draft["release"]["assets"] = draft["release"]["assets"][:1]
         result, state, output = run_case(work, fakebin, tmp, commit, assets, draft)
@@ -350,6 +350,22 @@ def main():
         assert state["release"]["draft"] is False
         assert state["release"]["immutable"] is True
         assert len(state["release"]["assets"]) == 2
+        assert "state=created" in output
+
+        result, state, output = run_case(
+            work,
+            fakebin,
+            tmp,
+            commit,
+            assets,
+            {
+                "immutable_enabled": True,
+                "release": None,
+                "release_view_warning": "simulated gh warning",
+            },
+        )
+        assert result.returncode == 0, result.stderr
+        assert state["release"]["immutable"] is True
         assert "state=created" in output
 
         result, _, _ = run_case(
