@@ -8,8 +8,8 @@ tag creation, build commands, artifact naming, release triggers, and changelog p
 ## Quick start
 
 Create and push the Git tag before invoking the action. The release job needs
-`contents: write` and a checkout with Git history so the action can verify tag
-provenance.
+`contents: write` and a checkout of the caller repository so the action can bind
+the checkout identity, remote tag, and GitHub Release to the same repository.
 
 ```yaml
 jobs:
@@ -20,8 +20,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@<full-commit-sha>
-        with:
-          fetch-depth: 0
 
       - name: Build release assets
         run: ./scripts/build-release.sh
@@ -68,7 +66,16 @@ Before publishing:
 - build any requested assets before invoking the action.
 
 The action uses the caller's `github.token` by default. Supply `token` only when a
-different repository credential is intentionally required.
+different repository credential is intentionally required. The checked-out repository
+must resolve to the same `owner/name` as `GITHUB_REPOSITORY`; the action rejects a
+different checkout before checking or mutating release state.
+
+Immutable releases are a repository prerequisite, not something this action enables.
+The default release token intentionally does not require repository-administration
+permission. If immutability is disabled, GitHub can publish the draft as a mutable
+release before the action observes `immutable: false` and fails. Enable immutable
+releases before the first invocation; a failed run in this state may therefore require
+manual cleanup before retrying.
 
 ## Inputs
 
@@ -105,9 +112,18 @@ For a new release, the action creates a draft, uploads any requested assets, ver
 their exact set and SHA-256 digests, publishes the draft, verifies immutability, and
 checks the final asset set again.
 
-An existing draft is resumed only when its state is compatible with the requested
-release. An existing published release is accepted as an idempotent no-op only when its
-tag target, prerelease state, immutability, and complete asset set all match the request.
+An existing draft is resumed only when its prerelease state, requested title, release
+notes policy, and existing assets are compatible with the invocation. Explicit
+`notes-file` content must match exactly after normal shell newline handling; an
+invocation that requests no notes rejects a draft with an existing body. For
+`generate-notes: "true"`, GitHub-generated body content from the original draft is
+preserved rather than regenerated during a retry.
+
+An existing published release is accepted as an idempotent no-op only when its tag
+target, prerelease state, immutability, and complete asset set all match the request.
+If another invocation uploads the same asset concurrently, a failed upload is accepted
+only when the resulting remote asset has the expected name, uploaded state, and SHA-256
+digest.
 
 The action never retargets a published release, deletes or replaces an existing asset,
 uses `--clobber`, or forcefully repairs mismatched release state.
