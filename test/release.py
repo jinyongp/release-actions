@@ -42,7 +42,11 @@ if not args:
     sys.exit(1)
 
 if args[:2] == ["repo", "view"]:
-    print(state.get("repository", "owner/repo"))
+    explicit_repository = len(args) > 2 and not args[2].startswith("-")
+    if explicit_repository:
+        print(state.get("repository", "owner/repo"))
+    else:
+        print(os.environ.get("GH_REPO", state.get("repository", "owner/repo")))
     sys.exit(0)
 
 if args[0] == "api":
@@ -117,6 +121,10 @@ if args[0] == "api":
         if not release["draft"]:
             release["immutable"] = state.get("immutable_enabled", True)
         save()
+        if state.get("concurrent_publish"):
+            state["concurrent_publish"] = False
+            save()
+            sys.exit(1)
         sys.exit(0)
 
     sys.exit(1)
@@ -438,6 +446,19 @@ def main():
         result, _, _ = run_case(work, fakebin, tmp, commit, assets, identity_mismatch)
         require_failure(result, "checkout repository does not match GITHUB_REPOSITORY")
 
+        result, state, output = run_case(
+            work,
+            fakebin,
+            tmp,
+            commit,
+            assets,
+            {"immutable_enabled": True, "release": None},
+            GH_REPO="other/repo",
+        )
+        assert result.returncode == 0, result.stderr
+        assert state["release"]["immutable"] is True
+        assert "state=created" in output
+
         stale_title = release_state(a, b, draft=True, immutable=False)
         stale_title["release"]["name"] = "stale title"
         result, _, _ = run_case(work, fakebin, tmp, commit, assets, stale_title)
@@ -458,6 +479,21 @@ def main():
         )
         require_failure(result, "draft release notes do not match")
 
+        generated_notes = release_state(a, b, draft=True, immutable=False)
+        generated_notes["release"]["body"] = "existing generated notes"
+        result, state, output = run_case(
+            work,
+            fakebin,
+            tmp,
+            commit,
+            assets,
+            generated_notes,
+            INPUT_GENERATE_NOTES="true",
+        )
+        assert result.returncode == 0, result.stderr
+        assert state["release"]["body"] == "existing generated notes"
+        assert "state=resumed-draft" in output
+
         concurrent = {
             "immutable_enabled": True,
             "release": None,
@@ -468,6 +504,20 @@ def main():
         assert state["release"]["immutable"] is True
         assert len(state["release"]["assets"]) == 2
         assert "uploaded concurrently" in result.stdout
+        assert "state=created" in output
+
+        concurrent_publish = {
+            "immutable_enabled": True,
+            "release": None,
+            "concurrent_publish": True,
+        }
+        result, state, output = run_case(
+            work, fakebin, tmp, commit, assets, concurrent_publish
+        )
+        assert result.returncode == 0, result.stderr
+        assert state["release"]["draft"] is False
+        assert state["release"]["immutable"] is True
+        assert "published concurrently" in result.stdout
         assert "state=created" in output
 
         result, _, _ = run_case(

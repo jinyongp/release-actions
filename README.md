@@ -112,12 +112,12 @@ For a new release, the action creates a draft, uploads any requested assets, ver
 their exact set and SHA-256 digests, publishes the draft, verifies immutability, and
 checks the final asset set again.
 
-An existing draft is resumed only when its prerelease state, requested title, release
-notes policy, and existing assets are compatible with the invocation. Explicit
-`notes-file` content must match exactly after normal shell newline handling; an
-invocation that requests no notes rejects a draft with an existing body. For
-`generate-notes: "true"`, GitHub-generated body content from the original draft is
-preserved rather than regenerated during a retry.
+An existing draft is resumed only when its prerelease state, requested title, and
+existing assets are compatible with the invocation. Explicit `notes-file` content
+must match exactly after normal shell newline handling, and an invocation that requests
+no notes rejects a draft with an existing body. For `generate-notes: "true"`, the
+release API does not expose whether an existing body was generated, so the action
+preserves that body rather than regenerating or claiming to verify its provenance.
 
 An existing published release is accepted as an idempotent no-op only when its tag
 target, prerelease state, immutability, and complete asset set all match the request.

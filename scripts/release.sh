@@ -116,10 +116,12 @@ verify_remote_tag() {
 }
 
 verify_repository_identity() {
-  local repository
+  local origin repository
 
+  origin="$(git remote get-url origin)" ||
+    die "could not resolve checkout origin"
   repository="$(
-    gh repo view --json nameWithOwner --jq '.nameWithOwner'
+    gh repo view "$origin" --json nameWithOwner --jq '.nameWithOwner'
   )" || die "could not resolve checkout repository identity"
 
   [ "$repository" = "$GITHUB_REPOSITORY" ] ||
@@ -333,14 +335,23 @@ publish_draft_release() {
     false) make_latest="false" ;;
   esac
 
-  api \
+  if ! api \
     -X PATCH \
     "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
     -F "draft=false" \
     -F "prerelease=${INPUT_PRERELEASE:-false}" \
     -f "make_latest=$make_latest" \
-    --silent >/dev/null ||
+    --silent >/dev/null; then
+    load_release_by_id
+    if [ "$RELEASE_DRAFT" = "false" ] &&
+      [ "$RELEASE_PRERELEASE" = "${INPUT_PRERELEASE:-false}" ] &&
+      [ "$RELEASE_IMMUTABLE" = "true" ]; then
+      verify_release_assets "false"
+      echo "::notice::release was published concurrently: $INPUT_TAG"
+      return 0
+    fi
     die "failed to publish draft release $INPUT_TAG"
+  fi
 }
 
 verify_published_release() {
