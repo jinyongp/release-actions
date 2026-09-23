@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 
 state_path = Path(os.environ["FAKE_GH_STATE"])
@@ -23,6 +24,21 @@ args = sys.argv[1:]
 
 def save():
     state_path.write_text(json.dumps(state))
+
+
+def move_remote_tag(target):
+    subprocess.run(
+        ["git", "tag", "-f", "v1.0.0", target],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    subprocess.run(
+        ["git", "push", "--force", "origin", "v1.0.0"],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
 
 def field(name, default=None):
@@ -153,6 +169,11 @@ if args[0] == "api":
             state["concurrent_publish"] = False
             save()
             sys.exit(1)
+        moved_target = state.get("move_tag_on_publish")
+        if moved_target:
+            state["move_tag_on_publish"] = None
+            save()
+            move_remote_tag(moved_target)
         sys.exit(0)
 
     sys.exit(1)
@@ -177,6 +198,12 @@ if args[:2] == ["release", "upload"]:
         state["concurrent_upload_name"] = None
         save()
         sys.exit(1)
+    move = state.get("move_tag_after_upload")
+    if move and move["name"] == name:
+        state["move_tag_after_upload"] = None
+        save()
+        move_remote_tag(move["target"])
+        sys.exit(0)
     save()
     sys.exit(0)
 
@@ -223,7 +250,18 @@ def setup_source(tmp):
     git("tag", "v1.0.0", cwd=work)
     git("push", "origin", "v1.0.0", cwd=work)
     commit = git("rev-parse", "HEAD", cwd=work).stdout.strip()
-    return work, commit
+
+    (work / "NEXT.md").write_text("next\n")
+    git("add", "NEXT.md", cwd=work)
+    git("commit", "-m", "next fixture", cwd=work)
+    git("push", "origin", "main", cwd=work)
+    moved_commit = git("rev-parse", "HEAD", cwd=work).stdout.strip()
+    return work, commit, moved_commit
+
+
+def set_remote_tag(work, commit):
+    git("tag", "-f", "v1.0.0", commit, cwd=work)
+    git("push", "--force", "origin", "v1.0.0", cwd=work)
 
 
 def run_case(work, fakebin, tmp, commit, assets, state, **overrides):
@@ -335,7 +373,7 @@ def main():
         fake_gh.write_text(FAKE_GH)
         fake_gh.chmod(0o755)
 
-        work, commit = setup_source(tmp)
+        work, commit, moved_commit = setup_source(tmp)
         a = work / "artifact-a.bin"
         b = work / "artifact-b.bin"
         a.write_bytes(b"aaa\n")
@@ -709,6 +747,34 @@ def main():
         assert state["release"]["immutable"] is True
         assert "published concurrently" in result.stdout
         assert "state=created" in output
+
+        moved_after_upload = {
+            "immutable_enabled": True,
+            "release": None,
+            "move_tag_after_upload": {
+                "name": b.name,
+                "target": moved_commit,
+            },
+        }
+        result, state, _ = run_case(
+            work, fakebin, tmp, commit, assets, moved_after_upload
+        )
+        require_failure(result, "release tag target does not match commit")
+        assert state["release"]["draft"] is True
+        set_remote_tag(work, commit)
+
+        moved_on_publish = {
+            "immutable_enabled": True,
+            "release": None,
+            "move_tag_on_publish": moved_commit,
+        }
+        result, state, _ = run_case(
+            work, fakebin, tmp, commit, assets, moved_on_publish
+        )
+        require_failure(result, "release tag target does not match commit")
+        assert state["release"]["draft"] is False
+        assert state["release"]["immutable"] is True
+        set_remote_tag(work, commit)
 
         result, _, _ = run_case(
             work,

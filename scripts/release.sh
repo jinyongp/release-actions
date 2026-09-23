@@ -394,6 +394,7 @@ verify_published_release() {
 
   verify_release_assets "false"
   verify_latest_state
+  verify_remote_tag "$INPUT_TAG" "$INPUT_COMMIT"
 }
 
 set_outputs() {
@@ -514,6 +515,7 @@ main() {
 
   upload_missing_assets
   verify_release_assets "false"
+  verify_remote_tag "$INPUT_TAG" "$INPUT_COMMIT"
   publish_draft_release
   verify_published_release
   set_outputs "$state"
