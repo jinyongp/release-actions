@@ -65,10 +65,19 @@ Before publishing:
 - check out the caller repository with its authenticated `origin` available;
 - build any requested assets before invoking the action.
 
-The action uses the caller's `github.token` by default. Supply `token` only when a
-different repository credential is intentionally required. The checked-out repository
-must resolve to the same `owner/name` as `GITHUB_REPOSITORY`; the action rejects a
-different checkout before checking or mutating release state.
+The action uses the caller's `github.token` by default. For ordinary release
+targets, `contents: write` is sufficient. If the release target adds or modifies files
+under `.github/workflows/` relative to the repository's default branch, GitHub's
+Create Release and Update Release APIs additionally require authorization to modify
+workflows. The Actions `GITHUB_TOKEN` cannot be granted that permission, so pass an
+explicit `token` backed by a credential that can modify workflows, such as a classic
+personal access token with the `workflow` scope or a fine-grained/GitHub App token with
+`Contents: write` and `Workflows: write`. See GitHub's
+[REST release API documentation](https://docs.github.com/en/rest/releases/releases).
+
+The checked-out repository must resolve to the same `owner/name` as
+`GITHUB_REPOSITORY`; the action rejects a different checkout before checking or
+mutating release state.
 
 Immutable releases are a repository prerequisite, not something this action enables.
 The default release token intentionally does not require repository-administration

@@ -33,7 +33,7 @@ inputs:
     required: false
     default: "automatic"
   token:
-    description: GitHub token override. Defaults to the caller github.token.
+    description: GitHub token override. Defaults to caller github.token; use a workflow-authorized credential when the release target changes .github/workflows.
     required: false
     default: ""
 
