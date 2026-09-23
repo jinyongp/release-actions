@@ -42,6 +42,11 @@ if not args:
     sys.exit(1)
 
 if args[:2] == ["repo", "view"]:
+    if "latestRelease" in args:
+        if state.get("latest_lookup_error"):
+            sys.exit(1)
+        print(state.get("latest_tag", ""))
+        sys.exit(0)
     explicit_repository = len(args) > 2 and not args[2].startswith("-")
     if explicit_repository:
         print(state.get("repository", "owner/repo"))
@@ -92,6 +97,21 @@ if args[0] == "api":
         sys.exit(0)
 
     if "-X" in args and "POST" in args:
+        if state.get("concurrent_create"):
+            state["concurrent_create"] = False
+            state["release"] = {
+                "id": 42,
+                "tag": field("tag_name"),
+                "name": field("name", field("tag_name")),
+                "body": field("body", ""),
+                "draft": True,
+                "prerelease": field("prerelease") == "true",
+                "immutable": False,
+                "url": "https://example.invalid/release/42",
+                "assets": [],
+            }
+            save()
+            sys.exit(1)
         if state.get("release"):
             sys.exit(1)
         state["release"] = {
@@ -121,6 +141,13 @@ if args[0] == "api":
         release["prerelease"] = field("prerelease") == "true"
         if not release["draft"]:
             release["immutable"] = state.get("immutable_enabled", True)
+            make_latest = field("make_latest")
+            if make_latest == "true":
+                state["latest_tag"] = release["tag"]
+            elif make_latest == "false" and state.get("latest_tag") == release["tag"]:
+                state["latest_tag"] = state.get("fallback_latest_tag", "")
+            elif make_latest == "legacy" and not release["prerelease"]:
+                state["latest_tag"] = release["tag"]
         save()
         if state.get("concurrent_publish"):
             state["concurrent_publish"] = False
@@ -321,6 +348,86 @@ def main():
         assert result.returncode == 0, result.stderr
         assert "state=existing" in output
 
+        automatic_without_lookup = release_state(a, b)
+        automatic_without_lookup["latest_lookup_error"] = True
+        result, _, output = run_case(
+            work,
+            fakebin,
+            tmp,
+            commit,
+            assets,
+            automatic_without_lookup,
+        )
+        assert result.returncode == 0, result.stderr
+        assert "state=existing" in output
+
+        latest_true = release_state(a, b)
+        latest_true["latest_tag"] = "v1.0.0"
+        result, _, output = run_case(
+            work,
+            fakebin,
+            tmp,
+            commit,
+            assets,
+            latest_true,
+            INPUT_LATEST="true",
+        )
+        assert result.returncode == 0, result.stderr
+        assert "state=existing" in output
+
+        latest_lookup_failure = release_state(a, b)
+        latest_lookup_failure["latest_lookup_error"] = True
+        result, _, _ = run_case(
+            work,
+            fakebin,
+            tmp,
+            commit,
+            assets,
+            latest_lookup_failure,
+            INPUT_LATEST="true",
+        )
+        require_failure(result, "could not read latest release for owner/repo")
+
+        latest_true_mismatch = release_state(a, b)
+        latest_true_mismatch["latest_tag"] = "v0.9.0"
+        result, _, _ = run_case(
+            work,
+            fakebin,
+            tmp,
+            commit,
+            assets,
+            latest_true_mismatch,
+            INPUT_LATEST="true",
+        )
+        require_failure(result, "release is not latest as requested")
+
+        latest_false = release_state(a, b)
+        latest_false["latest_tag"] = "v0.9.0"
+        result, _, output = run_case(
+            work,
+            fakebin,
+            tmp,
+            commit,
+            assets,
+            latest_false,
+            INPUT_LATEST="false",
+        )
+        assert result.returncode == 0, result.stderr
+        assert "state=existing" in output
+
+        latest_false_mismatch = release_state(a, b)
+        latest_false_mismatch["latest_tag"] = "v1.0.0"
+        result, _, _ = run_case(
+            work,
+            fakebin,
+            tmp,
+            commit,
+            assets,
+            latest_false_mismatch,
+            INPUT_LATEST="false",
+        )
+        require_failure(result, "release is latest but latest=false was requested")
+
         existing_with_warning = release_state(a, b)
         existing_with_warning["release_view_warning"] = "simulated gh warning"
         result, _, output = run_case(
@@ -351,6 +458,50 @@ def main():
         assert state["release"]["immutable"] is True
         assert len(state["release"]["assets"]) == 2
         assert "state=created" in output
+
+        result, state, output = run_case(
+            work,
+            fakebin,
+            tmp,
+            commit,
+            assets,
+            {"immutable_enabled": True, "release": None, "latest_tag": "v0.9.0"},
+            INPUT_LATEST="true",
+        )
+        assert result.returncode == 0, result.stderr
+        assert state["latest_tag"] == "v1.0.0"
+        assert "state=created" in output
+
+        result, state, output = run_case(
+            work,
+            fakebin,
+            tmp,
+            commit,
+            assets,
+            {"immutable_enabled": True, "release": None, "latest_tag": "v0.9.0"},
+            INPUT_LATEST="false",
+        )
+        assert result.returncode == 0, result.stderr
+        assert state["latest_tag"] == "v0.9.0"
+        assert "state=created" in output
+
+        result, state, output = run_case(
+            work,
+            fakebin,
+            tmp,
+            commit,
+            assets,
+            {
+                "immutable_enabled": True,
+                "release": None,
+                "concurrent_create": True,
+            },
+        )
+        assert result.returncode == 0, result.stderr
+        assert state["release"]["immutable"] is True
+        assert len(state["release"]["assets"]) == 2
+        assert "state=resumed-draft" in output
+        assert "state=created" not in output
 
         result, state, output = run_case(
             work,

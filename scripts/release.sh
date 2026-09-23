@@ -356,6 +356,32 @@ publish_draft_release() {
   fi
 }
 
+verify_latest_state() {
+  local latest_tag
+
+  case "${INPUT_LATEST:-automatic}" in
+    automatic) return 0 ;;
+    true|false) ;;
+  esac
+
+  latest_tag="$(
+    gh repo view "$GITHUB_REPOSITORY" \
+      --json latestRelease \
+      --jq '.latestRelease.tagName // ""'
+  )" || die "could not read latest release for $GITHUB_REPOSITORY"
+
+  case "${INPUT_LATEST:-automatic}" in
+    true)
+      [ "$latest_tag" = "$INPUT_TAG" ] ||
+        die "release is not latest as requested: $INPUT_TAG"
+      ;;
+    false)
+      [ "$latest_tag" != "$INPUT_TAG" ] ||
+        die "release is latest but latest=false was requested: $INPUT_TAG"
+      ;;
+  esac
+}
+
 verify_published_release() {
   load_release_by_id
 
@@ -367,6 +393,7 @@ verify_published_release() {
     die "published release is not immutable: $INPUT_TAG"
 
   verify_release_assets "false"
+  verify_latest_state
 }
 
 set_outputs() {
@@ -448,6 +475,7 @@ main() {
       [ "$RELEASE_IMMUTABLE" = "true" ] ||
         die "existing published release is not immutable: $INPUT_TAG"
       verify_release_assets "false"
+      verify_latest_state
       set_outputs "existing"
       echo "::notice::verified existing immutable release $INPUT_TAG"
       exit 0
@@ -467,18 +495,21 @@ main() {
         [ "$RELEASE_IMMUTABLE" = "true" ] ||
           die "concurrent published release is not immutable: $INPUT_TAG"
         verify_release_assets "false"
+        verify_latest_state
         set_outputs "existing"
         echo "::notice::verified concurrently published immutable release $INPUT_TAG"
         exit 0
       fi
 
       verify_draft_metadata
+      state="resumed-draft"
+    else
+      state="created"
     fi
 
     [ "$RELEASE_DRAFT" = "true" ] ||
       die "new release was not created as a draft: $INPUT_TAG"
     verify_release_assets "true"
-    state="created"
   fi
 
   upload_missing_assets
