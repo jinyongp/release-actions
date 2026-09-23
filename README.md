@@ -70,9 +70,11 @@ targets, `contents: write` is sufficient. If the release target adds or modifies
 under `.github/workflows/` relative to the repository's default branch, GitHub's
 Create Release and Update Release APIs additionally require authorization to modify
 workflows. The Actions `GITHUB_TOKEN` cannot be granted that permission, so pass an
-explicit `token` backed by a credential that can modify workflows, such as a classic
-personal access token with the `workflow` scope or a fine-grained/GitHub App token with
-`Contents: write` and `Workflows: write`. See GitHub's
+explicit `token` backed by a credential that can write both repository contents and
+workflows. For a classic personal access token, use repository write access (`repo`, or
+`public_repo` when public repositories are sufficient) together with the `workflow`
+scope. A fine-grained personal access token or GitHub App token needs `Contents: write`
+and `Workflows: write`. See GitHub's
 [REST release API documentation](https://docs.github.com/en/rest/releases/releases).
 
 The checked-out repository must resolve to the same `owner/name` as
